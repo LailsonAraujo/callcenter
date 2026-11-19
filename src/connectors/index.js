@@ -1,8 +1,8 @@
 import { config } from '../config.js';
 import { waha } from './waha.js';
+import { opasuite } from './opasuite.js';
 import { createGenericConnector } from './generic.js';
 
-const opasuite = createGenericConnector({ channel: 'opasuite', label: 'OPA Suite', cfg: config.opasuite });
 const chatmix = createGenericConnector({ channel: 'chatmix', label: 'Chatmix', cfg: config.chatmix });
 
 export const connectors = { waha, opasuite, chatmix };

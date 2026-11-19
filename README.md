@@ -39,27 +39,43 @@ npm test               # testes do fluxo: entrada → distribuição → respost
    (assim as mensagens enviadas pelo celular também entram no histórico).
 3. `WAHA_GROUPS_ONLY=true` faz o número atender só grupos.
 
-### OPA Suite e Chatmix
-Não encontrei documentação pública das APIs desses dois sistemas. Por isso os conectores são **configuráveis**:
-- **Entrada**: aponte o webhook do sistema para `https://SEU_HOST/webhooks/opasuite` (ou `/webhooks/chatmix`) e
-  ajuste `OPA_FIELDS` / `CHATMIX_FIELDS` com os caminhos dos campos no JSON que o sistema envia
-  (ex.: `"text": "mensagem.texto"`).
-- **Saída**: `*_SEND_PATH` e `*_SEND_BODY` definem o endpoint e o corpo usados para responder.
+### OPA Suite
+Integração feita com base na [documentação oficial da API](https://api.opasuite.com.br/).
+1. No OPA, crie um usuário com perfil de permissões do tipo **API** e copie o token.
+2. Preencha `OPA_URL` (o domínio do seu OPA) e `OPA_TOKEN` e ative `OPA_ENABLED=true`.
+
+Como funciona:
+- **Entrada por polling**: a API do OPA não oferece webhook. A cada `OPA_POLL_SEC` segundos o sistema lista
+  os atendimentos não finalizados (`GET /api/v1/atendimento`) e busca as mensagens de cada um
+  (`GET /api/v1/atendimento/mensagem`). Mensagens repetidas são descartadas.
+- Nome e CPF/CNPJ do cliente vêm do atendimento "populado" (`GET /api/v1/atendimento/:id`). O CPF já
+  alimenta a consulta no IXC/SGP.
+- **Saída**: `POST /api/v1/atendimento/mensagem/send`. Funciona em atendimentos em andamento: com atendente,
+  agente virtual ou na fila.
+- **Registro da IA de volta no OPA**: ao encerrar, o resumo é gravado como observação no atendimento
+  (`POST /api/v1/atendimento/:id/observacao`). Para desligar, use `OPA_WRITE_SUMMARY=false`.
+- O TME conta a partir da abertura do atendimento no OPA.
+
+### Chatmix
+Não há documentação pública da API do Chatmix, então o conector é **configurável**:
+- **Entrada**: aponte o webhook para `https://SEU_HOST/webhooks/chatmix?token=WEBHOOK_TOKEN` e ajuste
+  `CHATMIX_FIELDS` com os caminhos dos campos no JSON recebido (ex.: `"text": "message.text"`).
+- **Saída**: `CHATMIX_SEND_PATH` e `CHATMIX_SEND_BODY` definem o endpoint e o corpo do envio.
   `{{chatId}}` e `{{text}}` são substituídos. A autenticação vai como `Authorization: Bearer <TOKEN>`.
 
-Para descobrir o formato do webhook, deixe `*_ENABLED=true` e veja o payload chegando
-(ou use um serviço como webhook.site). Peça ao suporte de cada sistema a documentação da API de envio.
-Se o formato for muito diferente, crie um conector próprio em `src/connectors/` seguindo `waha.js`:
-basta implementar `normalize(body)` e `send(conversation, text)`.
+Se o formato for muito diferente, crie um conector próprio em `src/connectors/` seguindo `waha.js` ou `opasuite.js`.
 
 ### IXC Soft
-`IXC_TOKEN` no formato `id_usuario:token` (Configurações → Usuários → Token de API). O usuário precisa de
-permissão de leitura em `cliente`, `cliente_contrato` e `fn_areceber`.
+Token conforme a [wiki do IXC](https://wiki-erp.ixcsoft.com.br/documentacao/guias-tutoriais/api/):
+Configurações → Usuários → marque **"Permite acesso a API"** e salve para gerar o token.
+`IXC_TOKEN` fica no formato `id_usuario:token`. No grupo do usuário, dê permissão de leitura em `cliente`,
+`cliente_contrato` e `fn_areceber`. **Inclua o IP deste servidor nos IPs permitidos**, senão o IXC recusa as chamadas.
 
 ### SGP
-Use o token e o nome do app cadastrados no SGP. As consultas usam os endpoints de URA
-(`/api/ura/consultacliente/` e `/api/ura/titulos/`). Os nomes dos campos variam entre versões do SGP:
-o retorno original fica em `raw`. Se algum campo vier vazio, ajuste o mapeamento em `src/integrations/sgp.js`.
+Integração feita com base na [documentação oficial da API](https://api.sgp.net.br/) (endpoints de URA):
+- `POST /api/ura/consultacliente/` por CPF/CNPJ ou **telefone**. O DDI 55 do WhatsApp é removido.
+- `POST /api/ura/titulos/` com `status=abertos`: valor corrigido, vencimento, linha digitável/código de barras e link do boleto.
+- Autenticação por `SGP_TOKEN` + `SGP_APP` (Sistema → Ferramentas → Painel Admin → Tokens) ou `SGP_USER`/`SGP_PASSWORD`.
 
 ### IA
 Coloque sua chave em `ANTHROPIC_API_KEY`. O modelo padrão é `claude-opus-5-5` com esforço `low`
@@ -74,7 +90,7 @@ src/
   server.js                 Express + Socket.IO (tempo real)
   config.js                 Configuração via .env
   db.js                     SQLite (better-sqlite3): users, queues, contacts, conversations, messages, alerts
-  connectors/               Canais: waha.js, generic.js (OPA/Chatmix), index.js
+  connectors/               Canais: waha.js, opasuite.js (polling), generic.js (Chatmix), index.js
   integrations/             ERPs: ixc.js, sgp.js, index.js (consulta paralela)
   services/
     conversations.js        Fila, distribuição, envio, transferência, encerramento
@@ -90,4 +106,5 @@ test/core.test.js
 - Rode atrás de HTTPS (nginx/Caddy) e defina `JWT_SECRET` e `WEBHOOK_TOKEN`.
 - Faça backup do arquivo SQLite. Com muitos atendentes simultâneos, migre para PostgreSQL
   (as consultas estão concentradas em `services/`).
-- Valide os conectores OPA/Chatmix e os campos do SGP com dados reais (veja acima).
+- Teste com dados reais: os conectores do OPA e do SGP seguem as documentações oficiais, mas só foram
+  validados com os exemplos delas. O conector do Chatmix precisa do mapeamento de campos.

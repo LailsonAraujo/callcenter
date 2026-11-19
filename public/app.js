@@ -283,7 +283,7 @@ async function lookup(params, silent = false) {
         <b>${esc(c.name)} <span class="badge">${c.source.toUpperCase()}</span> ${c.active ? '' : '<span class="badge">inativo</span>'}</b>
         ${esc(c.document || '')}<br>${esc(c.phones.join(' / '))}<br>${esc(c.address || '')}
         ${c.contracts.length ? `<ul>${c.contracts.map((k) => `<li>${esc(k.plan || 'Contrato ' + k.id)} — ${esc(k.status || '')}${k.internetStatus ? ' / ' + esc(k.internetStatus) : ''}</li>`).join('')}</ul>` : ''}
-        ${c.openInvoices.length ? `<div class="error">${c.openInvoices.length} título(s) em aberto: ${c.openInvoices.map((t) => `${esc(t.dueDate)} R$ ${t.amount.toFixed(2)}`).join(', ')}</div>` : '<div class="meta">Sem títulos em aberto</div>'}
+        ${c.openInvoices.length ? `<div class="error">${c.openInvoices.length} título(s) em aberto: ${c.openInvoices.map((t) => `${esc(t.dueDate)} R$ ${t.amount.toFixed(2)}${t.link ? ` <a href="${esc(t.link)}" target="_blank" rel="noopener">boleto</a>` : ''}`).join(', ')}</div>` : '<div class="meta">Sem títulos em aberto</div>'}
         <button data-link="${i}" class="ghost">Vincular ao atendimento</button>
       </div>`).join('') || (silent ? '' : '<p class="meta">Nenhum cliente encontrado</p>'));
     $$('[data-link]').forEach((b) => (b.onclick = () => {

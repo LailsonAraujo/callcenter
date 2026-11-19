@@ -1,6 +1,7 @@
 // Núcleo do atendimento: entrada de mensagens de todos os canais, fila, distribuição,
 // envio, transferência e encerramento com registro por IA.
 import { getConnector } from '../connectors/index.js';
+import { config } from '../config.js';
 import { summarizeConversation, describeAiError } from './ai.js';
 
 export function createConversationService({ db, emit, autoAssign = true, summarize = summarizeConversation }) {
@@ -31,6 +32,13 @@ export function createConversationService({ db, emit, autoAssign = true, summari
   };
 
   const get = (id) => q.conv.get(id);
+
+  /** Devolve o registro ao sistema de origem, se o conector suportar (ex.: observação no OPA). */
+  function exportSummary(conv, summary) {
+    const connector = getConnector(conv.channel);
+    if (!connector.onSummary || (conv.channel === 'opasuite' && !config.opasuite.writeSummary)) return;
+    connector.onSummary(conv, summary).catch((e) => console.error(`[${conv.channel}] gravar resumo da conversa ${conv.id}:`, e.message));
+  }
   const pushConv = (id) => {
     const c = get(id);
     emit('conversation:updated', c, c.agent_id ? ['supervisors', `agent:${c.agent_id}`, 'staff'] : ['staff']);
@@ -74,6 +82,7 @@ export function createConversationService({ db, emit, autoAssign = true, summari
       if (!contact) {
         const r = q.insertContact.run(key, evt.contact.name ?? null, evt.contact.phone ?? null);
         contact = { id: r.lastInsertRowid };
+        if (evt.contact.document) db.prepare('UPDATE contacts SET document = ? WHERE id = ?').run(evt.contact.document, contact.id);
       } else if (evt.contact.name) {
         q.updateContactName.run(evt.contact.name, contact.id);
       }
@@ -81,9 +90,9 @@ export function createConversationService({ db, emit, autoAssign = true, summari
       let conv = q.openConv.get(evt.channel, evt.chatId);
       const m = evt.message;
       if (!conv) {
-        if (m.fromMe) return null; // mensagem enviada por fora sem atendimento aberto: ignora
+        if (m.fromMe && !evt.allowOpenFromMe) return null; // enviada por fora sem atendimento aberto: ignora
         const r = q.insertConv.run(evt.channel, evt.chatId, contact.id, evt.isGroup ? 1 : 0, evt.groupName ?? null,
-          q.defaultQueue.get()?.id ?? null, m.timestamp ?? Date.now());
+          q.defaultQueue.get()?.id ?? null, evt.openedAt ?? m.timestamp ?? Date.now());
         conv = get(r.lastInsertRowid);
       } else if (evt.groupName && !conv.group_name) {
         db.prepare('UPDATE conversations SET group_name = ? WHERE id = ?').run(evt.groupName, conv.id);
@@ -172,6 +181,7 @@ export function createConversationService({ db, emit, autoAssign = true, summari
       try {
         const { summaryText, data } = await summarize(c, q.msgs.all(convId), customer);
         db.prepare('UPDATE conversations SET summary = ?, ai_data = ? WHERE id = ?').run(summaryText, JSON.stringify(data), convId);
+        if (c.status === 'closed') exportSummary(c, summaryText);
         return pushConv(convId);
       } catch (err) {
         throw httpError(502, `Falha ao gerar resumo: ${describeAiError(err)}`);
@@ -195,6 +205,7 @@ export function createConversationService({ db, emit, autoAssign = true, summari
         .run(now, reason ?? null, now, user.id, summary ?? null, convId);
       insertMessage(convId, { direction: 'note', senderName: user.name, text: `Atendimento encerrado${reason ? `: ${reason}` : ''}`, timestamp: now });
       const conv = pushConv(convId);
+      if (conv.summary) exportSummary(conv, conv.summary);
       if (!conv.summary) {
         api.generateSummary(convId).catch((e) => {
           console.error(`[IA] conversa ${convId}:`, e.message);

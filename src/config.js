@@ -35,21 +35,17 @@ export const config = {
     groupsOnly: env('WAHA_GROUPS_ONLY', 'true') === 'true',
   },
 
-  // OPA Suite e Chatmix: sem documentação pública. Conectores genéricos,
-  // com caminhos de campo configuráveis (notação a.b.c) para o webhook de entrada
-  // e template de envio. Ajuste conforme a documentação que o fornecedor passar.
+  // OPA Suite: API oficial (sem webhook — entrada por polling)
   opasuite: {
     enabled: env('OPA_ENABLED', 'false') === 'true',
-    baseUrl: env('OPA_URL', ''),
+    baseUrl: env('OPA_URL', ''), // domínio do seu OPA, ex: https://seuprovedor.opasuite.com.br
     token: env('OPA_TOKEN', ''),
-    sendPath: env('OPA_SEND_PATH', '/api/v1/mensagem'),
-    sendBody: json('OPA_SEND_BODY', { id_atendimento: '{{chatId}}', mensagem: '{{text}}' }),
-    fields: json('OPA_FIELDS', {
-      chatId: 'atendimento.id', messageId: 'mensagem.id', text: 'mensagem.texto',
-      contactName: 'contato.nome', contactPhone: 'contato.telefone',
-      fromMe: 'mensagem.enviada', mediaUrl: 'mensagem.url_arquivo', timestamp: 'mensagem.data',
-    }),
+    pollSec: Number(env('OPA_POLL_SEC', '5')),
+    // grava o resumo da IA como observação no atendimento do OPA
+    writeSummary: env('OPA_WRITE_SUMMARY', 'true') === 'true',
   },
+  // Chatmix: sem documentação pública. Conector genérico com caminhos de campo
+  // configuráveis (notação a.b.c) e template de envio.
   chatmix: {
     enabled: env('CHATMIX_ENABLED', 'false') === 'true',
     baseUrl: env('CHATMIX_URL', ''),
@@ -73,5 +69,8 @@ export const config = {
     baseUrl: env('SGP_URL', ''), // ex: https://sgp.seuprovedor.com.br
     token: env('SGP_TOKEN', ''),
     app: env('SGP_APP', ''),
+    // alternativa ao token: Basic Auth com usuário/senha do SGP
+    user: env('SGP_USER', ''),
+    password: env('SGP_PASSWORD', ''),
   },
 };

@@ -50,7 +50,7 @@ test('WAHA: normaliza mensagem de grupo e ignora conversa individual quando grou
   assert.equal(priv, null);
 });
 
-test('Conector genérico (OPA/Chatmix): usa o mapeamento de campos', async () => {
+test('Conector genérico (Chatmix): usa o mapeamento de campos', async () => {
   const c = createGenericConnector({
     channel: 'opasuite', label: 'OPA Suite',
     cfg: { fields: { chatId: 'atd.id', messageId: 'msg.id', text: 'msg.txt', contactName: 'cli.nome', contactPhone: 'cli.fone', fromMe: 'msg.minha' } },
@@ -132,4 +132,71 @@ test('Relatório TME/TMA e exportação CSV', () => {
   assert.match(csv, /tme_seg;tma_seg/);
   assert.match(csv, /Cliente sem sinal; resolvido/);
   db.close();
+});
+
+test('OPA Suite: polling cria o atendimento com mensagens do bot e do cliente, sem duplicar', async () => {
+  const { createOpaPoller } = await import('../src/connectors/opasuite.js');
+  const { db, service } = setup();
+  db.prepare(`UPDATE users SET status = 'offline'`).run();
+  const atd = { _id: 'atd1', status: 'EA', date: '2026-11-19T12:00:00.000Z', protocolo: 'OPA2026001' };
+  // Formatos copiados dos exemplos da documentação oficial
+  const msgs = [
+    { _id: 'm1', id_rota: 'atd1', id_atend: 'bot', mensagem: 'Protocolo OPA2026001', tipoDestinatario: 'clientes_users', data: '2026-11-19T12:00:01.000Z' },
+    { _id: 'm2', id_rota: 'atd1', id_user: 'u1', mensagem: 'Minha internet está lenta', tipo: 'texto', tipoDestinatario: 'usuarios', data: '2026-11-19T12:00:05.000Z' },
+    { _id: 'm3', id_rota: 'atd1', id_atend: 'bot', mensagem: { titulo: 'Menu', opcoes: [{ id: '1', texto: 'Suporte' }] }, data: '2026-11-19T12:00:06.000Z' },
+  ];
+  const calls = [];
+  const request = async (method, path, body) => {
+    calls.push([method, path, body]);
+    if (path === 'api/v1/atendimento') return [atd, { _id: 'velho', status: 'F' }];
+    if (path === 'api/v1/atendimento/atd1') return { ...atd, id_cliente: { nome: 'João Santos', cpf_cnpj: '56982161005' }, id_user: { nome: 'João' } };
+    if (path === 'api/v1/atendimento/mensagem') return msgs;
+    throw new Error('rota inesperada ' + path);
+  };
+  const poller = createOpaPoller({ service, request, intervalSec: 3600, log: { error() {}, warn() {} } });
+  await poller.tick();
+  await poller.tick(); // sem mensagens novas: não reprocessa
+  poller.stop();
+
+  const conv = service.list({ user: { id: 1, role: 'admin' } })[0];
+  assert.equal(conv.channel, 'opasuite');
+  assert.equal(conv.external_id, 'atd1');
+  assert.equal(conv.contact_name, 'João Santos');
+  assert.equal(conv.created_at, Date.parse('2026-11-19T12:00:00.000Z'), 'TME conta da abertura no OPA');
+  const ms = service.messages(conv.id);
+  assert.deepEqual(ms.map((m) => m.direction), ['out', 'in', 'out']);
+  assert.match(ms[2].body, /1\) Suporte/);
+  assert.equal(calls.filter((c) => c[1] === 'api/v1/atendimento/mensagem').length, 2);
+  assert.equal(calls.find((c) => c[1] === 'api/v1/atendimento/mensagem')[2].filter.id_rota, 'atd1');
+  assert.ok(!calls.some((c) => c[1].includes('velho')), 'ignora atendimentos finalizados');
+  assert.equal(db.prepare('SELECT document FROM contacts').get().document, '56982161005');
+  db.close();
+});
+
+test('SGP: consulta por telefone (sem DDI) e normaliza contratos e títulos em aberto', async () => {
+  const { sgp } = await import('../src/integrations/sgp.js');
+  Object.assign(config.sgp, { enabled: true, baseUrl: 'https://sgp.exemplo', token: 'tk', app: 'central' });
+  const forms = [];
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    forms.push([String(url), Object.fromEntries(opts.body.entries())]);
+    const body = String(url).includes('consultacliente')
+      ? { contratos: [{ clienteId: 2827, razaoSocial: 'RAZAO', cpfCnpj: '999.999.999-99', telefones: ['(42) 99999-9999'], emails: ['a@b.c'],
+          contratoId: 10269, planointernet: 'Plano 150 Mega', contratoStatusDisplay: ' Ativo ', servico_tipo_conexao: 'PPPoE', endereco_logradouro: 'Rua X', endereco_numero: 1 }] }
+      : { titulos: [{ id: 16085, status: 'aberto', valorCorrigido: 15, dataVencimento: '2026-02-16', codigoBarras: '9999', link: 'https://sgp/boleto/1' }] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  try {
+    const [c] = await sgp.search({ phone: '5542999999999' });
+    assert.equal(forms[0][1].telefone, '42999999999');
+    assert.equal(forms[0][1].token, 'tk');
+    assert.deepEqual([forms[1][1].cliente_id, forms[1][1].status], ['2827', 'abertos']);
+    assert.equal(c.name, 'RAZAO');
+    assert.equal(c.active, true);
+    assert.equal(c.contracts[0].plan, 'Plano 150 Mega');
+    assert.equal(c.openInvoices[0].amount, 15);
+    assert.equal(c.openInvoices[0].link, 'https://sgp/boleto/1');
+  } finally {
+    globalThis.fetch = prev;
+  }
 });

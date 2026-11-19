@@ -11,6 +11,7 @@ import { startSlaMonitor } from './services/sla.js';
 import { apiRoutes } from './routes/api.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { enabledChannels } from './connectors/index.js';
+import { createOpaPoller } from './connectors/opasuite.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,7 +61,8 @@ export function createApp({ db = openDb(), autoAssign = process.env.AUTO_ASSIGN 
   });
 
   const stopSla = startSlaMonitor(db, emit);
-  return { app, server, io, db, service, stop: () => { stopSla(); io.close(); server.close(); } };
+  const opa = config.opasuite.enabled && config.opasuite.baseUrl ? createOpaPoller({ service }) : null;
+  return { app, server, io, db, service, stop: () => { stopSla(); opa?.stop(); io.close(); server.close(); } };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
