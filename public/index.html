@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Central de Atendimento</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="login hidden">
+    <form id="loginForm" class="card">
+      <h1>Central de Atendimento</h1>
+      <label>E-mail <input name="email" type="email" required autocomplete="username"></label>
+      <label>Senha <input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="primary">Entrar</button>
+      <p id="loginError" class="error"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <section id="app" class="app hidden">
+    <header class="topbar">
+      <strong>Central de Atendimento</strong>
+      <nav>
+        <button data-view="chat" class="active">Atendimento</button>
+        <button data-view="dashboard" class="sup">Painel</button>
+        <button data-view="reports" class="sup">Relatórios</button>
+      </nav>
+      <div class="right">
+        <button id="alertsBtn" class="ghost" title="Alertas de TME/TMA">🔔 <span id="alertCount">0</span></button>
+        <select id="statusSel" title="Seu status">
+          <option value="online">🟢 Disponível</option>
+          <option value="paused">🟡 Pausa</option>
+          <option value="offline">⚪ Offline</option>
+        </select>
+        <span id="meName"></span>
+        <button id="logout" class="ghost">Sair</button>
+      </div>
+    </header>
+
+    <!-- Atendimento -->
+    <main id="view-chat" class="view chat-view">
+      <aside class="list">
+        <div class="tabs">
+          <button data-tab="waiting" class="active">Fila <span id="cWaiting">0</span></button>
+          <button data-tab="active">Meus <span id="cActive">0</span></button>
+          <button data-tab="closed">Encerrados</button>
+        </div>
+        <input id="search" placeholder="Buscar contato ou grupo…">
+        <ul id="convList"></ul>
+      </aside>
+
+      <section class="conversation" id="conversation">
+        <div class="empty">Selecione um atendimento</div>
+      </section>
+
+      <aside class="side hidden" id="side">
+        <h3>Cliente (IXC / SGP)</h3>
+        <form id="lookupForm" class="row">
+          <input name="q" placeholder="CPF/CNPJ ou telefone">
+          <button>Consultar</button>
+        </form>
+        <div id="customer"></div>
+
+        <h3>Registro do atendimento <small>(IA)</small></h3>
+        <textarea id="summary" rows="10" placeholder="O resumo é gerado pela IA ao encerrar, ou clique em Gerar resumo."></textarea>
+        <div class="row">
+          <button id="genSummary">Gerar resumo</button>
+          <button id="saveSummary" class="ghost">Salvar</button>
+        </div>
+        <div id="aiTags" class="tags"></div>
+      </aside>
+    </main>
+
+    <!-- Painel do supervisor -->
+    <main id="view-dashboard" class="view hidden">
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2">
+        <div class="card"><h3>Atendentes</h3><table id="agentsTable"></table></div>
+        <div class="card"><h3>Alertas abertos</h3><ul id="alertsList" class="alerts"></ul></div>
+      </div>
+    </main>
+
+    <!-- Relatórios -->
+    <main id="view-reports" class="view hidden">
+      <form id="reportForm" class="card row wrap">
+        <label>De <input type="date" name="from"></label>
+        <label>Até <input type="date" name="to"></label>
+        <label>Agrupar por
+          <select name="groupBy">
+            <option value="agent">Atendente</option>
+            <option value="channel">Canal</option>
+            <option value="queue">Fila</option>
+            <option value="day">Dia</option>
+            <option value="hour">Hora</option>
+          </select>
+        </label>
+        <button class="primary">Gerar</button>
+        <button type="button" id="csvBtn" class="ghost">Exportar CSV (com resumos)</button>
+      </form>
+      <div class="kpis" id="reportKpis"></div>
+      <div class="card"><table id="reportTable"></table></div>
+    </main>
+  </section>
+
+  <div id="toasts"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
